@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Quebra-cabeça com a minha pretinha &lt;3</title>
+  <style>
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:16px;background:linear-gradient(135deg,#ecfdf5,#f0f9ff);color:#044f1d}
+    .container{max-width:1100px;margin:0 auto}
+    .header{display:flex;align-items:center;gap:12px}
+    h1{margin:8px 0;font-size:28px}
+    .card{background:rgba(255,255,255,0.85);padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(2,6,23,0.06);border:1px solid rgba(16,185,129,0.12)}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .grid{display:grid;border-radius:8px;overflow:hidden;border:2px solid rgba(16,185,129,0.15);background:#f0fff4}
+    .tray{display:flex;flex-wrap:wrap;gap:8px;padding:8px;justify-content:center}
+    .piece{border-radius:6px;cursor:pointer;box-shadow:0 2px 6px rgba(2,6,23,0.06)}
+    button{background:#10b981;border:none;color:white;padding:8px 10px;border-radius:8px;cursor:pointer}
+    button.secondary{background:transparent;color:#065f46;border:1px solid rgba(6,95,70,0.12)}
+    .panel{display:flex;gap:12px;align-items:center}
+    .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+    .win-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:999}
+    .win-card{background:white;padding:18px;border-radius:10px;border:4px solid #34d399;text-align:center}
+    input[type=file]{display:none}
+    .small{font-size:14px;color:#065f46}
+    .time{font-weight:600}
+    @media(max-width:800px){ .grid{width:95vw;height:70vw} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>💚 Quebra-cabeça com a minha pretinha &lt;3</h1>
+    </div>
+
+    <div class="card">
+      <div class="panel">
+        <div style="display:flex;flex-direction:column">
+          <div class="small">Nível</div>
+          <select id="difficulty">
+            <option>Fácil</option>
+            <option selected>Médio</option>
+            <option>Difícil</option>
+            <option>Impossível</option>
+          </select>
+        </div>
+
+        <div style="display:flex;flex-direction:column">
+          <div class="small">Tempo</div>
+          <div class="time" id="timer">00:00</div>
+        </div>
+
+        <div class="right controls">
+          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer" class="secondary">
+            <span class="small">Selecionar imagem</span>
+            <input id="imgfile" type="file" accept="image/*"/>
+          </label>
+          <button id="shuffleBtn">Embaralhar</button>
+          <button id="solveBtn" style="background:#ef4444">Resolver</button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">
+        <div id="boardWrap" class="grid" style="width:600px;height:600px"></div>
+        <div style="width:260px">
+          <div class="card" style="padding:8px;min-height:300px">
+            <h3 style="margin:6px 0;color:#065f46">Peças soltas</h3>
+            <div id="tray" class="tray"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- React + Babel from CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+
+  <script type="text/babel">
+  const { useState, useEffect, useRef } = React;
+
+  function App() {
+    const DEFAULT = '';
+    const FALLBACK = 'https://via.placeholder.com/1000x1000.png?text=Imagem+não+encontrada';
+    const DIFFICULTIES = { 'Fácil':4, 'Médio':6, 'Difícil':8, 'Impossível':12 };
+    const [difficulty, setDifficulty] = useState('Médio');
+    const [cols,setCols] = useState(DIFFICULTIES['Médio']);
+    const [imageSrc,setImageSrc] = useState(FALLBACK);
+    const [imageLoaded,setImageLoaded] = useState(true);
+    const [pieces,setPieces] = useState([]);
+    const [board,setBoard] = useState([]);
+    const [win,setWin] = useState(false);
+    const [time,setTime] = useState(0);
+    const [active,setActive] = useState(false);
+    const timerRef = useRef(null);
+
+    useEffect(()=>{ setCols(DIFFICULTIES[difficulty]); },[difficulty]);
+
+    useEffect(()=>{
+      if(active && !win){
+        timerRef.current = setInterval(()=> setTime(t=>t+1),1000);
+      } else clearInterval(timerRef.current);
+      return ()=> clearInterval(timerRef.current);
+    },[active,win]);
+
+    useEffect(()=>{ init(); },[cols,imageSrc]);
+
+    function init(){
+      const total = cols*cols;
+      const arr = Array.from({length:total},(_,i)=> ({ id:i, rotation:0 }));
+      setBoard(new Array(total).fill(null));
+      setPieces(arr.slice());
+      setWin(false);
+      setTime(0);
+      setActive(false);
+    }
+
+    function shuffle(){
+      const total = cols*cols;
+      let newPieces = Array.from({length:total},(_,i)=> ({ id:i, rotation: Math.floor(Math.random()*4)*90 }));
+      // shuffle
+      for(let i=newPieces.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [newPieces[i],newPieces[j]]=[newPieces[j],newPieces[i]];
+      }
+      setPieces(newPieces);
+      setBoard(new Array(total).fill(null));
+      setActive(true);
+      setWin(false);
+      setTime(0);
+    }
+
+    function solve(){
+      const solved = Array.from({length:cols*cols},(_,i)=> ({ id:i, rotation:0 }));
+      setBoard(solved);
+      setPieces([]);
+      setWin(true);
+      setActive(false);
+    }
+
+    useEffect(()=>{ checkWin(); },[board]);
+
+    function checkWin(){
+      if(board.includes(null) || board.length!==cols*cols) return;
+      const ok = board.every((p,idx)=> p && p.id===idx && p.rotation%360===0);
+      if(ok){ setWin(true); setActive(false); }
+    }
+
+    function handleDragStart(e,piece){
+      e.dataTransfer.setData('text/plain', String(piece.id));
+    }
+
+    function handleDropBoard(e,idx){
+      e.preventDefault();
+      const id = Number(e.dataTransfer.getData('text/plain'));
+      if(Number.isNaN(id)) return;
+      const fromPiece = pieces.find(x=>x.id===id);
+      if(!fromPiece) return;
+      const newBoard = [...board];
+      const current = newBoard[idx];
+      newBoard[idx]=fromPiece;
+      setBoard(newBoard);
+      setPieces(prev=> prev.filter(x=> x.id!==id).concat(current? [current]:[]));
+    }
+
+    function handleDropTray(e){
+      e.preventDefault();
+      const id = Number(e.dataTransfer.getData('text/plain'));
+      if(Number.isNaN(id)) return;
+      const pos = board.findIndex(p=> p && p.id===id);
+      if(pos!==-1){
+        const newBoard = [...board]; newBoard[pos]=null; setBoard(newBoard);
+        const from = pieces.find(x=>x.id===id);
+        if(!from) setPieces(prev=> prev.concat({id,rotation:0}));
+      }
+    }
+
+    function rotatePieceInTray(id){
+      setPieces(prev=> prev.map(p=> p.id===id? {...p,rotation:(p.rotation+90)%360}:p));
+    }
+    function rotatePieceOnBoard(id){
+      setBoard(prev=> prev.map(p=> p && p.id===id? {...p,rotation:(p.rotation+90)%360}:p));
+    }
+
+    function formatTime(sec){
+      const m = String(Math.floor(sec/60)).padStart(2,'0');
+      const s = String(sec%60).padStart(2,'0');
+      return m+':'+s;
+    }
+
+    // handle upload
+    function onFileChange(file){
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev)=> setImageSrc(ev.target.result);
+      reader.readAsDataURL(file);
+    }
+
+    // render pieces/tray/board
+    const boardSize = Math.min(window.innerWidth*0.8, window.innerHeight*0.7, 600);
+    const cellSize = boardSize / cols;
+    const pieceSizeInTray = Math.min(72, boardSize / 6);
+
+    return (
+      <div>
+        <div style={{display:'none'}}></div>
+        <div style={{marginTop:12}}>
+          <div id="board" style={{width:boardSize,height:boardSize,gridTemplateColumns:\`repeat(${cols},1fr)\`,gridTemplateRows:\`repeat(${cols},1fr)\`,display:'grid'}} onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>handleDropTray(e)}>
+            {board.map((p,idx)=>{
+              if(!p) return <div key={idx} style={{outline:'1px solid rgba(6,95,70,0.06)'}} onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>handleDropBoard(e,idx)} />;
+              const denomX = cols>1? (cols-1):1;
+              const denomY = cols>1? (cols-1):1;
+              const posX = ((p.id%cols)/denomX)*100;
+              const posY = ((Math.floor(p.id/cols))/denomY)*100;
+              const style = {backgroundImage:\`url(\${imageSrc})\`,backgroundSize:\`\${cols*100}% \${cols*100}%\`,backgroundPosition:\`\${posX}% \${posY}%\`,transform:\`rotate(\${p.rotation}deg)\`};
+              return <div key={idx} style={{outline:'1px solid rgba(6,95,70,0.06)'}} onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>handleDropBoard(e,idx)}>
+                <div draggable={!win} onDragStart={(e)=>handleDragStart(e,p)} onClick={()=>rotatePieceOnBoard(p.id)} style={{width:'100%',height:'100%',...style}} />
+              </div>;
+            })}
+          </div>
+        </div>
+
+        <div style={{marginTop:12}}>
+          <div id="tray" style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            {pieces.map(p=>{
+              const denomX = cols>1? (cols-1):1;
+              const denomY = cols>1? (cols-1):1;
+              const posX = ((p.id%cols)/denomX)*100;
+              const posY = ((Math.floor(p.id/cols))/denomY)*100;
+              const style = {backgroundImage:\`url(\${imageSrc})\`,backgroundSize:\`\${cols*100}% \${cols*100}%\`,backgroundPosition:\`\${posX}% \${posY}%\`,width:pieceSizeInTray,height:pieceSizeInTray,transform:\`rotate(\${p.rotation}deg)\`};
+              return <div key={p.id} draggable={!win} onDragStart={(e)=>handleDragStart(e,p)} onClick={()=>rotatePieceInTray(p.id)} className="piece" style={style} />;
+            })}
+          </div>
+        </div>
+
+        <div style={{marginTop:14,display:'flex',gap:8,alignItems:'center'}}>
+          <select value={difficulty} onChange={(e)=>setDifficulty(e.target.value)}>
+            <option>Fácil</option>
+            <option>Médio</option>
+            <option>Difícil</option>
+            <option>Impossível</option>
+          </select>
+          <div style={{marginLeft:8}}><strong>Tempo:</strong> {formatTime(time)}</div>
+          <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+            <label style={{display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}} className="secondary">
+              <input id="file" type="file" accept="image/*" style={{display:'none'}} onChange={(e)=>onFileChange(e.target.files[0])}/>
+              <span className="small">Selecionar imagem</span>
+            </label>
+            <button onClick={shuffle}>Embaralhar</button>
+            <button onClick={solve} style={{background:'#ef4444'}}>Resolver</button>
+          </div>
+        </div>
+
+        {win && (
+          <div className="win-overlay" onClick={()=>{setWin(false); shuffle();}}>
+            <div className="win-card">
+              <h2>Parabéns meu amor! 💖</h2>
+              <p>Você resolveu o quebra-cabeça!</p>
+              <p>Seu tempo: <strong>{formatTime(time)}</strong></p>
+              <div style={{marginTop:10}}><button onClick={()=>{setWin(false); shuffle();}}>Jogar de novo</button></div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // mount
+  const rootDiv = document.getElementById('boardWrap');
+  ReactDOM.createRoot(rootDiv).render(<App />);
+
+  // wire inputs outside React (for file selection + buttons)
+  document.getElementById('imgfile').addEventListener('change', (e)=>{
+    const f = e.target.files[0];
+    const evt = new CustomEvent('file-selected',{detail:{file:f}});
+    window.dispatchEvent(evt);
+  });
+  document.getElementById('shuffleBtn').addEventListener('click', ()=> {
+    // find the React root and call shuffle by dispatching a custom event
+    window.dispatchEvent(new Event('shuffle-now'));
+  });
+  document.getElementById('solveBtn').addEventListener('click', ()=> window.dispatchEvent(new Event('solve-now')));
+
+  // connect DOM events to React via simple pub/sub
+  window.addEventListener('file-selected', (ev)=>{
+    const file = ev.detail.file;
+    // find the React app and call onFileChange by re-render trick: trigger input inside root
+    const input = document.querySelector('#boardWrap input[type=file]');
+    // fallback: use an event that App listens to
+    window.dispatchEvent(new CustomEvent('app-file',{detail:{file}}));
+  });
+  // simple communication: App listens to global events
+  window.addEventListener('shuffle-now', ()=> {
+    window.dispatchEvent(new CustomEvent('app-shuffle'));
+  });
+  window.addEventListener('solve-now', ()=> {
+    window.dispatchEvent(new CustomEvent('app-solve'));
+  });
+
+  // In-App listeners (bridge)
+  // Note: the App component also listens to these events via window.addEventListener inside useEffect (see top of file) 
+  </script>
+</body>
+</html>
